@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.33530.505
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BoxedPlayerSpawn", "BoxedPlayerSpawn.csproj", "{D7FC0FCA-ED0C-4C9B-A6BF-9DC1BA931F0C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D7FC0FCA-ED0C-4C9B-A6BF-9DC1BA931F0C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D7FC0FCA-ED0C-4C9B-A6BF-9DC1BA931F0C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D7FC0FCA-ED0C-4C9B-A6BF-9DC1BA931F0C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D7FC0FCA-ED0C-4C9B-A6BF-9DC1BA931F0C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {D7CF6BAF-B0CE-404E-A3DC-0C47544F36BC}
+	EndGlobalSection
+EndGlobal
