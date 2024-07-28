@@ -26,7 +26,9 @@ namespace Oxide.Plugins
         private static BoxedPlayerSpawn _plugin;
         private static Configuration _config;
         private StoredData _storedData;
-        
+
+        private List<LegacyShelter> _spawnedLegacyShelters = new List<LegacyShelter>();
+
         private const string PREFAB_LEGACY_SHELTER = "assets/prefabs/building/legacy.shelter.wood/legacy.shelter.wood.deployed.prefab";
         private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction | Layers.Mask.Player_Server;
         private const int LAYER_TERRAIN = Layers.Mask.Terrain;
@@ -52,6 +54,9 @@ namespace Oxide.Plugins
 
             [JsonProperty("Rocks Avoidance Radius")]
             public float RocksAvoidanceRadius { get; set; }
+
+            [JsonProperty("Shelter Lifetime Seconds")]
+            public float ShelterLifetimeSeconds { get; set; }
         }
 
         protected override void LoadConfig()
@@ -96,7 +101,8 @@ namespace Oxide.Plugins
                 MaximumAttemptsForFindingShelterPosition = 5,
                 SearchRadiusForShelterPositionAroundPlayer = 5f,
                 NearbyEntitiesAvoidanceRadius = 6f,
-                RocksAvoidanceRadius = 3f
+                RocksAvoidanceRadius = 3f,
+                ShelterLifetimeSeconds = 30f
             };
         }
 
@@ -194,6 +200,7 @@ namespace Oxide.Plugins
 
         private void Unload()
         {
+            KillAllLegacyShelters();
             _config = null;
             _plugin = null;
         }
@@ -269,7 +276,9 @@ namespace Oxide.Plugins
             legacyShelter.OnPlaced(player);
             legacyShelter.Spawn();
 
+            StartRemovalTimer(legacyShelter);
             LockLegacyShelterDoor(legacyShelter);
+            _spawnedLegacyShelters.Add(legacyShelter);
 
             return legacyShelter;
         }
@@ -288,6 +297,35 @@ namespace Oxide.Plugins
         }
 
         #endregion Legacy Shelter Spawning and Setup
+
+        #region Legacy Shelter Cleanup
+        
+        private void StartRemovalTimer(LegacyShelter legacyShelter)
+        {
+            timer.Once(_config.ShelterLifetimeSeconds, () =>
+            {
+                if (legacyShelter != null && !legacyShelter.IsDestroyed)
+                {
+                    legacyShelter.Kill();
+                }
+            });
+        }
+
+        private void KillAllLegacyShelters()
+        {
+            if (_spawnedLegacyShelters != null)
+            {
+                foreach (var shelter in _spawnedLegacyShelters)
+                {
+                    if (shelter != null && !shelter.IsDestroyed)
+                        shelter.Kill();
+                }
+
+                _spawnedLegacyShelters.Clear();
+            }
+        }
+
+        #endregion Legacy Shelter Cleanup
 
         #region Helper Classes
 
