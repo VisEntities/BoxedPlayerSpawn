@@ -241,7 +241,7 @@ namespace Oxide.Plugins
 
         #endregion Oxide Hooks
 
-        #region Legacy Shelter Spawning and Setup
+        #region Shelter Spawning and Setup
 
         private bool TryFindSuitableShelterPosition(Vector3 center, float searchRadius, int maximumAttempts, out Vector3 suitablePosition, out Quaternion suitableRotation)
         {
@@ -249,7 +249,7 @@ namespace Oxide.Plugins
             {
                 Vector3 position = TerrainUtil.GetRandomPositionAround(center, searchRadius);
                 if (TerrainUtil.OnTopology(position, TerrainTopology.Enum.Beach)
-                    && !TerrainUtil.InsideRock(position, _config.RocksAvoidanceRadius)
+                    && !TerrainUtil.InsideRock(position, _config.RocksAvoidanceRadius, LAYER_WORLD)
                     && !TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_ENTITIES))
                 {
                     RaycastHit groundHit;
@@ -296,9 +296,9 @@ namespace Oxide.Plugins
             }
         }
 
-        #endregion Legacy Shelter Spawning and Setup
+        #endregion Shelter Spawning and Setup
 
-        #region Legacy Shelter Cleanup
+        #region Shelter Cleanup
         
         private void StartRemovalTimer(LegacyShelter legacyShelter)
         {
@@ -325,21 +325,21 @@ namespace Oxide.Plugins
             }
         }
 
-        #endregion Legacy Shelter Cleanup
+        #endregion Shelter Cleanup
 
         #region Helper Classes
 
         public static class TerrainUtil
         {
-            public static bool OnTopology(Vector3 position, TerrainTopology.Enum mask)
+            public static bool OnTopology(Vector3 position, TerrainTopology.Enum topology)
             {
-                return (TerrainMeta.TopologyMap.GetTopology(position) & (int)mask) != 0;
+                return (TerrainMeta.TopologyMap.GetTopology(position) & (int)topology) != 0;
             }
 
-            public static bool InsideRock(Vector3 position, float radius)
+            public static bool InsideRock(Vector3 position, float radius, LayerMask mask)
             {
                 List<Collider> colliders = Pool.GetList<Collider>();
-                Vis.Colliders(position, radius, colliders, LAYER_WORLD, QueryTriggerInteraction.Ignore);
+                Vis.Colliders(position, radius, colliders, mask, QueryTriggerInteraction.Ignore);
 
                 bool result = false;
 
