@@ -205,6 +205,11 @@ namespace Oxide.Plugins
             _plugin = null;
         }
 
+        private void OnNewSave()
+        {
+            DataFileUtil.LoadOrCreate<StoredData>(DataFileUtil.GetFilePath());
+        }
+
         private object OnPlayerRespawn(BasePlayer player, BasePlayer.SpawnPoint spawnPoint)
         {
             if (player == null || PermissionUtil.HasPermission(player, PermissionUtil.IGNORE))
