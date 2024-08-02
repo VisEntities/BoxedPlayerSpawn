@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 namespace Oxide.Plugins
 {
     [Info("Boxed Player Spawn", "VisEntities", "1.0.0")]
-    [Description(" ")]
+    [Description("Spawns players inside a shelter when they join the server for the first time.")]
     public class BoxedPlayerSpawn : RustPlugin
     {
         #region Fields
@@ -27,12 +27,12 @@ namespace Oxide.Plugins
         private static Configuration _config;
         private StoredData _storedData;
 
-        private List<LegacyShelter> _spawnedLegacyShelters = new List<LegacyShelter>();
+        private List<LegacyShelter> _spawnedShelters = new List<LegacyShelter>();
 
         private const string PREFAB_LEGACY_SHELTER = "assets/prefabs/building/legacy.shelter.wood/legacy.shelter.wood.deployed.prefab";
-        private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction | Layers.Mask.Player_Server;
+        
+        private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction;
         private const int LAYER_TERRAIN = Layers.Mask.Terrain;
-        private const int LAYER_WORLD = Layers.Mask.World;
 
         #endregion Fields
 
@@ -43,17 +43,17 @@ namespace Oxide.Plugins
             [JsonProperty("Version")]
             public string Version { get; set; }
 
-            [JsonProperty("Maximum Attempts For Finding Shelter Position")]
-            public int MaximumAttemptsForFindingShelterPosition { get; set; }
+            [JsonProperty("Number Of Attempts To Find Shelter Position")]
+            public int NumberOfAttemptsToFindShelterPosition { get; set; }
 
-            [JsonProperty("Search Radius For Shelter Position Around Player")]
-            public float SearchRadiusForShelterPositionAroundPlayer { get; set; }
+            [JsonProperty("Search Radius For Shelter Position Around Beach Spawn Point")]
+            public float SearchRadiusForShelterPositionAroundBeachSpawnPoint { get; set; }
 
             [JsonProperty("Nearby Entities Avoidance Radius")]
             public float NearbyEntitiesAvoidanceRadius { get; set; }
 
             [JsonProperty("Rocks Avoidance Radius")]
-            public float RocksAvoidanceRadius { get; set; }
+            public float RocksAvoidanceRadius { get;    set; }
 
             [JsonProperty("Shelter Lifetime Seconds")]
             public float ShelterLifetimeSeconds { get; set; }
@@ -98,10 +98,10 @@ namespace Oxide.Plugins
             return new Configuration
             {
                 Version = Version.ToString(),
-                MaximumAttemptsForFindingShelterPosition = 5,
-                SearchRadiusForShelterPositionAroundPlayer = 5f,
+                NumberOfAttemptsToFindShelterPosition = 5,
+                SearchRadiusForShelterPositionAroundBeachSpawnPoint = 5f,
                 NearbyEntitiesAvoidanceRadius = 6f,
-                RocksAvoidanceRadius = 3f,
+                RocksAvoidanceRadius = 5f,
                 ShelterLifetimeSeconds = 30f
             };
         }
@@ -218,7 +218,7 @@ namespace Oxide.Plugins
                 Vector3 shelterPosition;
                 Quaternion shelterRotation;
 
-                if (TryFindSuitableShelterPosition(spawnPoint.pos, _config.SearchRadiusForShelterPositionAroundPlayer, _config.MaximumAttemptsForFindingShelterPosition, out shelterPosition, out shelterRotation))
+                if (TryFindSuitableShelterPosition(spawnPoint.pos, _config.SearchRadiusForShelterPositionAroundBeachSpawnPoint, _config.NumberOfAttemptsToFindShelterPosition, out shelterPosition, out shelterRotation))
                 {
                     LegacyShelter legacyShelter = SpawnLegacyShelter(shelterPosition, shelterRotation, player);
                     if (legacyShelter != null)
@@ -247,10 +247,11 @@ namespace Oxide.Plugins
         {
             for (int attempt = 0; attempt < maximumAttempts; attempt++)
             {
-                Vector3 position = TerrainUtil.GetRandomPositionAround(center, searchRadius);
+                Vector3 position = TerrainUtil.GetRandomPositionAround(center, minimumRadius: 0f, maximumRadius: searchRadius);
                 if (TerrainUtil.OnTopology(position, TerrainTopology.Enum.Beach)
-                    && !TerrainUtil.InsideRock(position, _config.RocksAvoidanceRadius, LAYER_WORLD)
-                    && !TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_ENTITIES))
+                    && !TerrainUtil.InsideRock(position, _config.RocksAvoidanceRadius)
+                    && !TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_ENTITIES)
+                    && !PlayerUtil.HasPlayerNearby(position, _config.NearbyEntitiesAvoidanceRadius))
                 {
                     RaycastHit groundHit;
                     if (TerrainUtil.GetGroundInfo(position, out groundHit, 5f, LAYER_TERRAIN))
@@ -276,9 +277,9 @@ namespace Oxide.Plugins
             legacyShelter.OnPlaced(player);
             legacyShelter.Spawn();
 
-            StartRemovalTimer(legacyShelter);
+            StartRemovalTimer(legacyShelter, _config.ShelterLifetimeSeconds);
             LockLegacyShelterDoor(legacyShelter);
-            _spawnedLegacyShelters.Add(legacyShelter);
+            _spawnedShelters.Add(legacyShelter);
 
             return legacyShelter;
         }
@@ -298,13 +299,13 @@ namespace Oxide.Plugins
 
         #endregion Shelter Spawning and Setup
 
-        #region Shelter Cleanup
-        
-        private void StartRemovalTimer(LegacyShelter legacyShelter)
+        #region Shelters Removal
+
+        private void StartRemovalTimer(LegacyShelter legacyShelter, float lifetimeSeconds)
         {
-            timer.Once(_config.ShelterLifetimeSeconds, () =>
+            timer.Once(lifetimeSeconds, () =>
             {
-                if (legacyShelter != null && !legacyShelter.IsDestroyed)
+                if (legacyShelter != null)
                 {
                     legacyShelter.Kill();
                 }
@@ -313,21 +314,29 @@ namespace Oxide.Plugins
 
         private void KillAllLegacyShelters()
         {
-            if (_spawnedLegacyShelters != null)
+            if (_spawnedShelters != null)
             {
-                foreach (var shelter in _spawnedLegacyShelters)
+                foreach (var shelter in _spawnedShelters)
                 {
-                    if (shelter != null && !shelter.IsDestroyed)
+                    if (shelter != null)
                         shelter.Kill();
                 }
 
-                _spawnedLegacyShelters.Clear();
+                _spawnedShelters.Clear();
             }
         }
 
-        #endregion Shelter Cleanup
+        #endregion Shelters Removal
 
         #region Helper Classes
+
+        public static class PlayerUtil
+        {
+            public static bool HasPlayerNearby(Vector3 position, float radius)
+            {
+                return BaseNetworkable.HasCloseConnections(position, radius);
+            }
+        }
 
         public static class TerrainUtil
         {
@@ -336,10 +345,10 @@ namespace Oxide.Plugins
                 return (TerrainMeta.TopologyMap.GetTopology(position) & (int)topology) != 0;
             }
 
-            public static bool InsideRock(Vector3 position, float radius, LayerMask mask)
+            public static bool InsideRock(Vector3 position, float radius)
             {
                 List<Collider> colliders = Pool.GetList<Collider>();
-                Vis.Colliders(position, radius, colliders, mask, QueryTriggerInteraction.Ignore);
+                Vis.Colliders(position, radius, colliders, Layers.Mask.World, QueryTriggerInteraction.Ignore);
 
                 bool result = false;
 
@@ -381,10 +390,10 @@ namespace Oxide.Plugins
                 return hasEntityNearby;
             }
 
-            public static Vector3 GetRandomPositionAround(Vector3 center, float radius, bool adjustToWaterHeight = false)
+            public static Vector3 GetRandomPositionAround(Vector3 center, float minimumRadius, float maximumRadius, bool adjustToWaterHeight = false)
             {
                 Vector3 randomDirection = Random.onUnitSphere;
-                float randomDistance = Random.Range(0, radius);
+                float randomDistance = Random.Range(minimumRadius, maximumRadius);
                 Vector3 randomPosition = center + randomDirection * randomDistance;
 
                 if (adjustToWaterHeight)
