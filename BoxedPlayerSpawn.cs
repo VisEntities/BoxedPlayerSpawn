@@ -17,7 +17,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Boxed Player Spawn", "VisEntities", "1.0.0")]
+    [Info("Boxed Player Spawn", "VisEntities", "1.1.0")]
     [Description("Spawns players inside a shelter when they join the server for the first time.")]
     public class BoxedPlayerSpawn : RustPlugin
     {
@@ -27,9 +27,12 @@ namespace Oxide.Plugins
         private static Configuration _config;
         private StoredData _storedData;
 
-        private List<LegacyShelter> _spawnedShelters = new List<LegacyShelter>();
+        private System.Random _randomGenerator = new System.Random();
+
+        private Dictionary<LegacyShelter, BoxStorage> _spawnedShelters = new Dictionary<LegacyShelter, BoxStorage>();
 
         private const string PREFAB_LEGACY_SHELTER = "assets/prefabs/building/legacy.shelter.wood/legacy.shelter.wood.deployed.prefab";
+        private const string PREFAB_WOODEN_BOX = "assets/prefabs/deployable/woodenbox/woodbox_deployed.prefab";
         
         private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction;
         private const int LAYER_TERRAIN = Layers.Mask.Terrain;
@@ -57,6 +60,27 @@ namespace Oxide.Plugins
 
             [JsonProperty("Shelter Lifetime Seconds")]
             public float ShelterLifetimeSeconds { get; set; }
+
+            [JsonProperty("Spawn Box Storage Inside Shelter")]
+            public bool SpawnBoxStorageInsideShelter { get; set; }
+
+            [JsonProperty("Items To Spawn Inside Box Storage")]
+            public List<ItemInfo> ItemsToSpawnInsideBoxStorage { get; set; }
+        }
+
+        public class ItemInfo
+        {
+            [JsonProperty("Shortname")]
+            public string Shortname { get; set; }
+
+            [JsonProperty("Skin Id")]
+            public ulong SkinId { get; set; }
+
+            [JsonProperty("Minimum Amount")]
+            public int MinimumAmount { get; set; }
+
+            [JsonProperty("Maximum Amount")]
+            public int MaximumAmount { get; set; }
         }
 
         protected override void LoadConfig()
@@ -89,6 +113,13 @@ namespace Oxide.Plugins
             if (string.Compare(_config.Version, "1.0.0") < 0)
                 _config = defaultConfig;
 
+
+            if (string.Compare(_config.Version, "1.1.0") < 0)
+            {
+                _config.SpawnBoxStorageInsideShelter = defaultConfig.SpawnBoxStorageInsideShelter;
+                _config.ItemsToSpawnInsideBoxStorage = defaultConfig.ItemsToSpawnInsideBoxStorage;
+            }
+
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
             _config.Version = Version.ToString();
         }
@@ -102,7 +133,25 @@ namespace Oxide.Plugins
                 SearchRadiusForShelterPositionAroundBeachSpawnPoint = 5f,
                 NearbyEntitiesAvoidanceRadius = 6f,
                 RocksAvoidanceRadius = 5f,
-                ShelterLifetimeSeconds = 30f
+                ShelterLifetimeSeconds = 30f,
+                SpawnBoxStorageInsideShelter = true,
+                ItemsToSpawnInsideBoxStorage = new List<ItemInfo>()
+                {
+                    new ItemInfo
+                    {
+                        Shortname = "wood",
+                        SkinId = 0,
+                        MinimumAmount = 100,
+                        MaximumAmount = 200,
+                    },
+                    new ItemInfo
+                    {
+                        Shortname = "metal.fragments",
+                        SkinId = 0,
+                        MinimumAmount = 50,
+                        MaximumAmount = 100,
+                    },
+                }
             };
         }
 
@@ -284,7 +333,12 @@ namespace Oxide.Plugins
 
             StartRemovalTimer(legacyShelter, _config.ShelterLifetimeSeconds);
             LockLegacyShelterDoor(legacyShelter);
-            _spawnedShelters.Add(legacyShelter);
+
+            BoxStorage woodenBox = null;
+            if (_config.SpawnBoxStorageInsideShelter)
+                woodenBox = SpawnBoxStorageInsideShelter(position);
+
+            _spawnedShelters.Add(legacyShelter, woodenBox);
 
             return legacyShelter;
         }
@@ -304,6 +358,69 @@ namespace Oxide.Plugins
 
         #endregion Shelter Spawning and Setup
 
+        #region Interior Wooden Box Spawning and Filling
+
+        private BoxStorage SpawnBoxStorageInsideShelter(Vector3 shelterPosition)
+        {
+            RaycastHit groundHit;
+            if (TerrainUtil.GetGroundInfo(shelterPosition, out groundHit, 2f, LAYER_TERRAIN))
+            {
+                Vector3 boxPosition = groundHit.point;
+                Quaternion boxRotation = Quaternion.FromToRotation(Vector3.up, groundHit.normal);
+
+                BoxStorage woodenBox = GameManager.server.CreateEntity(PREFAB_WOODEN_BOX, boxPosition, boxRotation) as BoxStorage;
+                if (woodenBox != null)
+                {
+                    woodenBox.Spawn();
+                    PopulateItems(woodenBox.inventory, _config.ItemsToSpawnInsideBoxStorage);
+                    return woodenBox;
+                }
+            }
+
+            return null;
+        }
+
+        private void PopulateItems(ItemContainer itemContainer, List<ItemInfo> items)
+        {
+            Shuffle(items);
+            foreach (ItemInfo itemInfo in items)
+            {
+                var itemDefinition = ItemManager.FindItemDefinition(itemInfo.Shortname);
+                if (itemDefinition != null)
+                {
+                    int amountToAdd = Random.Range(itemInfo.MinimumAmount, itemInfo.MaximumAmount + 1);
+                    Item item = ItemManager.Create(itemDefinition, amountToAdd, itemInfo.SkinId);
+
+                    if (!item.MoveToContainer(itemContainer))
+                        item.Remove();
+                }
+
+                if (itemContainer.itemList.Count >= itemContainer.capacity)
+                    break;
+            }
+        }
+
+        #endregion Interior Wooden Box Spawning and Filling
+
+        #region Helper Functions
+
+        private static void Shuffle<T>(List<T> list)
+        {
+            int remainingItems = list.Count;
+
+            while (remainingItems > 1)
+            {
+                remainingItems--;
+                int randomIndex = _plugin._randomGenerator.Next(remainingItems + 1);
+
+                T itemToSwap = list[randomIndex];
+                list[randomIndex] = list[remainingItems];
+                list[remainingItems] = itemToSwap;
+            }
+        }
+
+        #endregion Helper Functions
+
         #region Shelters Removal
 
         private void StartRemovalTimer(LegacyShelter legacyShelter, float lifetimeSeconds)
@@ -312,23 +429,33 @@ namespace Oxide.Plugins
             {
                 if (legacyShelter != null)
                 {
+                    if (_spawnedShelters.TryGetValue(legacyShelter, out BoxStorage woodenBox))
+                    {
+                        if (woodenBox != null)
+                            woodenBox.Kill();
+                    }
+
                     legacyShelter.Kill();
+                    _spawnedShelters.Remove(legacyShelter);
                 }
             });
         }
 
         private void KillAllLegacyShelters()
         {
-            if (_spawnedShelters != null)
+            foreach (var kvp in _spawnedShelters)
             {
-                foreach (var shelter in _spawnedShelters)
-                {
-                    if (shelter != null)
-                        shelter.Kill();
-                }
+                LegacyShelter shelter = kvp.Key;
+                BoxStorage woodenBox = kvp.Value;
 
-                _spawnedShelters.Clear();
+                if (shelter != null)
+                    shelter.Kill();
+
+                if (woodenBox != null)
+                    woodenBox.Kill();
             }
+
+            _spawnedShelters.Clear();
         }
 
         #endregion Shelters Removal
