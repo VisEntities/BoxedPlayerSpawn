@@ -17,7 +17,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Boxed Player Spawn", "VisEntities", "1.1.0")]
+    [Info("Boxed Player Spawn", "VisEntities", "1.1.1")]
     [Description("Spawns players inside a shelter when they join the server for the first time.")]
     public class BoxedPlayerSpawn : RustPlugin
     {
@@ -479,7 +479,7 @@ namespace Oxide.Plugins
 
             public static bool InsideRock(Vector3 position, float radius)
             {
-                List<Collider> colliders = Pool.GetList<Collider>();
+                List<Collider> colliders = Pool.Get<List<Collider>>();
                 Vis.Colliders(position, radius, colliders, Layers.Mask.World, QueryTriggerInteraction.Ignore);
 
                 bool result = false;
@@ -495,13 +495,13 @@ namespace Oxide.Plugins
                     }
                 }
 
-                Pool.FreeList(ref colliders);
+                Pool.FreeUnmanaged(ref colliders);
                 return result;
             }
 
             public static bool HasEntityNearby(Vector3 position, float radius, LayerMask mask, string prefabName = null)
             {
-                List<Collider> hitColliders = Pool.GetList<Collider>();
+                List<Collider> hitColliders = Pool.Get<List<Collider>>();
                 GamePhysics.OverlapSphere(position, radius, hitColliders, mask, QueryTriggerInteraction.Ignore);
 
                 bool hasEntityNearby = false;
@@ -518,7 +518,7 @@ namespace Oxide.Plugins
                     }
                 }
 
-                Pool.FreeList(ref hitColliders);
+                Pool.FreeUnmanaged(ref hitColliders);
                 return hasEntityNearby;
             }
 
