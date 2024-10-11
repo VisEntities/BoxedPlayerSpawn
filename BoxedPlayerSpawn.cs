@@ -17,7 +17,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Boxed Player Spawn", "VisEntities", "1.1.1")]
+    [Info("Boxed Player Spawn", "VisEntities", "1.1.2")]
     [Description("Spawns players inside a shelter when they join the server for the first time.")]
     public class BoxedPlayerSpawn : RustPlugin
     {
@@ -365,8 +365,8 @@ namespace Oxide.Plugins
             RaycastHit groundHit;
             if (TerrainUtil.GetGroundInfo(shelterPosition, out groundHit, 2f, LAYER_TERRAIN))
             {
-                Vector3 boxPosition = groundHit.point;
-                Quaternion boxRotation = Quaternion.FromToRotation(Vector3.up, groundHit.normal);
+                Vector3 boxPosition = groundHit.point + groundHit.transform.right * -1.0f;
+                Quaternion boxRotation = Quaternion.FromToRotation(Vector3.up, groundHit.normal) * Quaternion.Euler(0, 90, 0);
 
                 BoxStorage woodenBox = GameManager.server.CreateEntity(PREFAB_WOODEN_BOX, boxPosition, boxRotation) as BoxStorage;
                 if (woodenBox != null)
