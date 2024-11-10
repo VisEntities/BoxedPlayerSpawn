@@ -7,6 +7,7 @@
 using Facepunch;
 using Newtonsoft.Json;
 using Oxide.Core;
+using Oxide.Core.Plugins;
 using Rust;
 using System.Collections.Generic;
 using System.Globalization;
@@ -17,10 +18,17 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Boxed Player Spawn", "VisEntities", "1.1.2")]
+    [Info("Boxed Player Spawn", "VisEntities", "1.2.0")]
     [Description("Spawns players inside a shelter when they join the server for the first time.")]
     public class BoxedPlayerSpawn : RustPlugin
     {
+        #region 3rd Party Dependencies
+
+        [PluginReference]
+        private readonly Plugin GearCore;
+
+        #endregion 3rd Party Dependencies
+
         #region Fields
 
         private static BoxedPlayerSpawn _plugin;
@@ -34,7 +42,7 @@ namespace Oxide.Plugins
         private const string PREFAB_LEGACY_SHELTER = "assets/prefabs/building/legacy.shelter.wood/legacy.shelter.wood.deployed.prefab";
         private const string PREFAB_WOODEN_BOX = "assets/prefabs/deployable/woodenbox/woodbox_deployed.prefab";
         
-        private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction;
+        private const int LAYER_BUILDINGS = Layers.Mask.Deployed | Layers.Mask.Construction;
         private const int LAYER_TERRAIN = Layers.Mask.Terrain;
 
         #endregion Fields
@@ -60,6 +68,9 @@ namespace Oxide.Plugins
 
             [JsonProperty("Shelter Lifetime Seconds")]
             public float ShelterLifetimeSeconds { get; set; }
+
+            [JsonProperty("Gear Set To Equip")]
+            public string GearSetToEquip { get; set; }
 
             [JsonProperty("Spawn Box Storage Inside Shelter")]
             public bool SpawnBoxStorageInsideShelter { get; set; }
@@ -120,6 +131,11 @@ namespace Oxide.Plugins
                 _config.ItemsToSpawnInsideBoxStorage = defaultConfig.ItemsToSpawnInsideBoxStorage;
             }
 
+            if (string.Compare(_config.Version, "1.2.0") < 0)
+            {
+                _config.GearSetToEquip = defaultConfig.GearSetToEquip;
+            }
+
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
             _config.Version = Version.ToString();
         }
@@ -134,6 +150,7 @@ namespace Oxide.Plugins
                 NearbyEntitiesAvoidanceRadius = 6f,
                 RocksAvoidanceRadius = 5f,
                 ShelterLifetimeSeconds = 30f,
+                GearSetToEquip = "",
                 SpawnBoxStorageInsideShelter = true,
                 ItemsToSpawnInsideBoxStorage = new List<ItemInfo>()
                 {
@@ -156,77 +173,6 @@ namespace Oxide.Plugins
         }
 
         #endregion Configuration
-
-        #region Data Utility
-
-        public class DataFileUtil
-        {
-            private const string FOLDER = "";
-
-            public static string GetFilePath(string filename = null)
-            {
-                if (filename == null)
-                    filename = _plugin.Name;
-
-                return Path.Combine(FOLDER, filename);
-            }
-
-            public static string[] GetAllFilePaths()
-            {
-                string[] filePaths = Interface.Oxide.DataFileSystem.GetFiles(FOLDER);
-
-                for (int i = 0; i < filePaths.Length; i++)
-                {
-                    // Remove the redundant '.json' from the filepath. This is necessary because the filepaths are returned with a double '.json'.
-                    filePaths[i] = filePaths[i].Substring(0, filePaths[i].Length - 5);
-                }
-
-                return filePaths;
-            }
-
-            public static bool Exists(string filePath)
-            {
-                return Interface.Oxide.DataFileSystem.ExistsDatafile(filePath);
-            }
-
-            public static T Load<T>(string filePath) where T : class, new()
-            {
-                T data = Interface.Oxide.DataFileSystem.ReadObject<T>(filePath);
-                if (data == null)
-                    data = new T();
-
-                return data;
-            }
-
-            public static T LoadIfExists<T>(string filePath) where T : class, new()
-            {
-                if (Exists(filePath))
-                    return Load<T>(filePath);
-                else
-                    return null;
-            }
-
-            public static T LoadOrCreate<T>(string filePath) where T : class, new()
-            {
-                T data = LoadIfExists<T>(filePath);
-                if (data == null)
-                    data = new T();
-
-                return data;
-            }
-
-            public static void Save<T>(string filePath, T data)
-            {
-                Interface.Oxide.DataFileSystem.WriteObject<T>(filePath, data);
-            }
-
-            public static void Delete(string filePath)
-            {
-                Interface.Oxide.DataFileSystem.DeleteDataFile(filePath);
-            }
-        }
-
-        #endregion Data Utility
 
         #region Stored Data
 
@@ -256,7 +202,7 @@ namespace Oxide.Plugins
 
         private void OnNewSave()
         {
-            DataFileUtil.LoadOrCreate<StoredData>(DataFileUtil.GetFilePath());
+            DataFileUtil.Delete(DataFileUtil.GetFilePath());
         }
 
         private object OnPlayerRespawn(BasePlayer player, BasePlayer.SpawnPoint spawnPoint)
@@ -281,6 +227,8 @@ namespace Oxide.Plugins
                         _storedData.PreviouslyConnectedPlayers.Add(player.userID);
                         DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
 
+                        EquipGearSet(player, _config.GearSetToEquip);
+
                         return new BasePlayer.SpawnPoint
                         {
                             pos = spawnPoint.pos,
@@ -304,7 +252,7 @@ namespace Oxide.Plugins
                 Vector3 position = TerrainUtil.GetRandomPositionAround(center, minimumRadius: 0f, maximumRadius: searchRadius);
                 if (TerrainUtil.OnTopology(position, TerrainTopology.Enum.Beach)
                     && !TerrainUtil.InsideRock(position, _config.RocksAvoidanceRadius)
-                    && !TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_ENTITIES)
+                    && !TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_BUILDINGS)
                     && !PlayerUtil.HasPlayerNearby(position, _config.NearbyEntitiesAvoidanceRadius))
                 {
                     RaycastHit groundHit;
@@ -402,7 +350,27 @@ namespace Oxide.Plugins
 
         #endregion Interior Wooden Box Spawning and Filling
 
+        #region Gear Set Equipping
+
+        private bool EquipGearSet(BasePlayer player, string gearSetName, bool clearInventory = true)
+        {
+            if (!PluginLoaded(_plugin.GearCore))
+                return false;
+
+            return _plugin.GearCore.Call<bool>("EquipGearSet", player, gearSetName, clearInventory);
+        }
+
+        #endregion Gear Set Equipping
+
         #region Helper Functions
+
+        public static bool PluginLoaded(Plugin plugin)
+        {
+            if (plugin != null && plugin.IsLoaded)
+                return true;
+            else
+                return false;
+        }
 
         private static void Shuffle<T>(List<T> list)
         {
@@ -522,16 +490,12 @@ namespace Oxide.Plugins
                 return hasEntityNearby;
             }
 
-            public static Vector3 GetRandomPositionAround(Vector3 center, float minimumRadius, float maximumRadius, bool adjustToWaterHeight = false)
+            public static Vector3 GetRandomPositionAround(Vector3 center, float minimumRadius, float maximumRadius)
             {
                 Vector3 randomDirection = Random.onUnitSphere;
+                randomDirection.y = 0;
                 float randomDistance = Random.Range(minimumRadius, maximumRadius);
                 Vector3 randomPosition = center + randomDirection * randomDistance;
-
-                if (adjustToWaterHeight)
-                    randomPosition.y = TerrainMeta.WaterMap.GetHeight(randomPosition);
-                else
-                    randomPosition.y = TerrainMeta.HeightMap.GetHeight(randomPosition);
 
                 return randomPosition;
             }
@@ -559,6 +523,73 @@ namespace Oxide.Plugins
 
                 raycastHit = hit;
                 return true;
+            }
+        }
+
+        public class DataFileUtil
+        {
+            private const string FOLDER = "";
+
+            public static string GetFilePath(string filename = null)
+            {
+                if (filename == null)
+                    filename = _plugin.Name;
+
+                return Path.Combine(FOLDER, filename);
+            }
+
+            public static string[] GetAllFilePaths()
+            {
+                string[] filePaths = Interface.Oxide.DataFileSystem.GetFiles(FOLDER);
+
+                for (int i = 0; i < filePaths.Length; i++)
+                {
+                    // Remove the redundant '.json' from the filepath. This is necessary because the filepaths are returned with a double '.json'.
+                    filePaths[i] = filePaths[i].Substring(0, filePaths[i].Length - 5);
+                }
+
+                return filePaths;
+            }
+
+            public static bool Exists(string filePath)
+            {
+                return Interface.Oxide.DataFileSystem.ExistsDatafile(filePath);
+            }
+
+            public static T Load<T>(string filePath) where T : class, new()
+            {
+                T data = Interface.Oxide.DataFileSystem.ReadObject<T>(filePath);
+                if (data == null)
+                    data = new T();
+
+                return data;
+            }
+
+            public static T LoadIfExists<T>(string filePath) where T : class, new()
+            {
+                if (Exists(filePath))
+                    return Load<T>(filePath);
+                else
+                    return null;
+            }
+
+            public static T LoadOrCreate<T>(string filePath) where T : class, new()
+            {
+                T data = LoadIfExists<T>(filePath);
+                if (data == null)
+                    data = new T();
+
+                return data;
+            }
+
+            public static void Save<T>(string filePath, T data)
+            {
+                Interface.Oxide.DataFileSystem.WriteObject<T>(filePath, data);
+            }
+
+            public static void Delete(string filePath)
+            {
+                Interface.Oxide.DataFileSystem.DeleteDataFile(filePath);
             }
         }
 
